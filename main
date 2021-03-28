@@ -1,0 +1,186 @@
+import os
+import discord
+import json
+from discord.ext import commands, tasks
+
+
+with open('data/guild_data.json', 'r') as f:
+    guild_data = json.load(f)
+
+
+def get_prefix(client, message):
+    prefix = guild_data[str(message.guild.id)]['prefix']
+    return prefix
+
+
+intents = discord.Intents.default()
+intents.members = True
+client = commands.Bot(command_prefix=get_prefix, intents=intents)
+
+
+class MyHelp(commands.HelpCommand):
+    async def send_bot_help(self, mapping):
+        channel = self.get_destination()
+        prefix = self.context.prefix
+
+        embed = discord.Embed(title='**Muskrat Bot Commands**', color=0x00C700)
+        cog_aliases = f'''
+**Around The World**
+{prefix}around_the_world
+{prefix}around-the-world
+{prefix}atw
+**Banned Words**
+{prefix}banned_words
+{prefix}banned-words
+{prefix}bw
+**Clear**
+{prefix}clear
+**Counting**
+{prefix}counting
+**Math**
+{prefix}math
+**Member Leave**
+{prefix}member_leave
+{prefix}member-leave
+{prefix}leave
+**Member Welcome**
+{prefix}member_welcome
+{prefix}member-welcome
+{prefix}welcome
+**Prefix**
+{prefix}prefix
+**Private VC's**
+{prefix}private_vc
+{prefix}private-vc
+{prefix}pvc
+**Reaction Roles**
+{prefix}reaction_role
+{prefix}reaction-role
+{prefix}rr
+**SCP**
+{prefix}scp
+'''
+        additional_info = f'''
+- Use `{prefix}[command] help` to get information on how to use specific commands.
+- Use `{prefix}load [primary command]` to enable a cog.
+- Use `{prefix}unload [primary command]` to disable a cog.
+'''
+        support = f'''
+For additional support or questions, join Muskrat's home here:
+https://discord.gg/afbjcYFKvr
+To invite Muskrat to your own server, use this link:
+{discord.utils.oauth_url(client_id=client.user.id, permissions=discord.Permissions(permissions=8))}        
+'''
+
+        embed.add_field(name='***Cog Aliases***', value=cog_aliases, inline=True)
+        embed.add_field(name='***Additional Information***', value=additional_info, inline=False)
+        embed.add_field(name='***Support***', value=support, inline=False)
+        await channel.send(embed=embed)
+
+
+client.help_command = MyHelp()
+
+
+@client.event
+async def on_ready():
+    print('Muskrat is online.')
+
+    msg = f'Watching {len(client.guilds)} servers.'
+    await client.change_presence(activity=discord.Game(name=msg))
+
+    if not backup_guild_data.is_running():
+        backup_guild_data.start()
+
+
+@client.event
+async def on_guild_join(guild):
+
+    with open('data/guild_data_template.json', 'r') as f:
+        guild_data[str(guild.id)] = json.load(f)
+    guild_data[str(guild.id)]['name'] = guild.name
+
+    if guild.system_channel.id:
+        guild_data[str(guild.id)]['welcome-channel_id'] = str(guild.system_channel.id)
+
+    msg = f'Watching {len(client.guilds)} servers.'
+    await client.change_presence(activity=discord.Game(name=msg))
+
+
+@client.event
+async def on_guild_remove(guild):
+    msg = f'Watching {len(client.guilds)} servers.'
+    await client.change_presence(activity=discord.Game(name=msg))
+
+
+@client.event
+async def on_member_join(member):
+    g = guild_data[str(member.guild.id)]
+    if str(member.id) not in g['member-data']:
+        await create_member_data(g, member)
+
+
+@client.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("You don't have permission to use that command.")
+
+
+@client.command()
+@commands.has_guild_permissions(administrator=True)
+async def load(ctx, extension):
+    client.load_extension(f'cogs.{extension}')
+
+
+@client.command()
+@commands.has_guild_permissions(administrator=True)
+async def unload(ctx, extension):
+    client.unload_extension(f'cogs.{extension}')
+
+
+@tasks.loop(minutes=1)
+async def backup_guild_data():
+    print('Backing up Guild Data')
+    with open('data/guild_data.json', 'w') as f:
+        json.dump(guild_data, f, indent=4)
+
+
+@client.event
+async def on_member_update(before, after):
+    if str(after.guild.id) not in guild_data:
+        return
+    g = guild_data[str(after.guild.id)]
+    if str(after.id) not in g['member-data']:
+        await create_member_data(g, after)
+    if after.nick and after.nick != before.nick:
+        g['member-data'][str(after.id)]['name'] = after.nick
+
+
+@client.event
+async def on_guild_update(before, after):
+    g = guild_data[str(after.id)]
+    g['name'] = after.name
+
+
+async def create_member_data(guild_file, member):
+    guild_file['member-data'][str(member.id)] = {
+        "name": member.nick or member.name,
+        "counted": 0,
+        "economy": {
+            "balance": 0
+        }
+    }
+
+
+for filename in os.listdir('./cogs'):
+    if filename != '__init__.py' and filename.endswith('.py'):
+        client.load_extension(f'cogs.{filename[:-3]}')
+
+
+@client.command()
+async def test(ctx):
+    pass
+
+
+
+
+client.run('XXX')
